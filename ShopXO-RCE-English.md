@@ -186,7 +186,7 @@ HTTP/1.1 200 OK
 **5. One-command reproduction script** (parameterised, no hard-coded target):
 
 ```bash
-python3 01-plugin-create-rce.py -u http://<TARGET> --admin-entry <ADMIN_ENTRY> \
+python3 shopox-RCE.py -u http://<TARGET> --admin-entry <ADMIN_ENTRY> \
         -a <ADMIN_USER> -p <ADMIN_PASSWORD> --mode shell   # exit 0 == reproduced
 ```
 
@@ -321,6 +321,6 @@ curl -s "http://<TARGET>/pocdir/admin/Admin.php?cmd=id"
 - CWE-94: <https://cwe.mitre.org/data/definitions/94.html>
 - CVSS v3.1 calculator: <https://www.first.org/cvss/calculator/3.1>
 - Full technical report (Chinese, with reviewer chain): `reports/14-披露报告-ShopXO后台创建应用参数未过滤导致RCE.md`
-- Parameterised PoC: `exp/01-plugin-create-rce.py`
+- Parameterised PoC: `exp/shopox-RCE.py`
 
 > **Before submitting:** remove the internal test-environment details (real IP, admin entry name, credentials, database name) — none of them are required for the vendor or the CNA to verify the issue.
