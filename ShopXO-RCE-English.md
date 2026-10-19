@@ -1,4 +1,4 @@
-# 15 · CVE Request / GitHub Security Advisory Submission — ShopXO Admin Panel "Create Application" Unvalidated Parameters → Remote Code Execution
+# ShopXO Admin Panel "Create Application" Unvalidated Parameters → Remote Code Execution
 
 > **How to use this file**: §1 is the ready-to-paste advisory body (GitHub "Report a vulnerability" form or a CNA e-mail). §2 is the short CVE-request cover letter. §3 is the sanitised PoC. Replace nothing but your own contact/credit lines — all target-specific values are already placeholders (`<TARGET>`, `<ADMIN_ENTRY>`, …).
 
